@@ -1,5 +1,12 @@
 /** Centralized, validated environment config. */
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+// Load the .env file from the monorepo root (three levels up from src/).
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+dotenv.config({ path: path.join(rootDir, ".env") });
 
 const Env = z.object({
   DATABASE_URL: z.string().url(),
