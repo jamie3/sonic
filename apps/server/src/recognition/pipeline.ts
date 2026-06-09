@@ -37,6 +37,11 @@ export async function runRecognition(input: RecognitionInput): Promise<Recogniti
   // 3. Vision LLM — fallback for messy/obscured photos.
   const fields = await extractWithVision(input);
   const merged = { ...ocr, ...fields };
+
+  // Nothing usable extracted — declare no-match rather than searching on empty.
+  if (!merged.artist && !merged.title && !merged.catalogNumber && !merged.label) {
+    return { method: "vision", matches: [], extracted: merged };
+  }
   const matches = await discogs.searchByText(merged);
   return { method: "vision", matches, extracted: merged };
 }
