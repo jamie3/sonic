@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+.DS_Store
+
+# images stored on disk by the API in local dev
+/data/
+apps/server/data/
+
+# expo / rn
+.expo/
+*.tsbuildinfo
+
+# vite
+apps/web/dist/

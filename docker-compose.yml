@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sonic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sonic}
+      POSTGRES_DB: ${POSTGRES_DB:-sonic}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sonic}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "dist/main.js", "serve"]
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_USERNAME: ${AUTH_USERNAME}
+      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-disk}
+      IMAGE_DIR: /data/images
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN}
+      DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT}
+    volumes:
+      - images:/data/images
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "dist/main.js", "work"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-disk}
+      IMAGE_DIR: /data/images
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN}
+      DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT}
+      VISION_DRIVER: ${VISION_DRIVER:-claude}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OLLAMA_URL: ${OLLAMA_URL}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL}
+    volumes:
+      - images:/data/images
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  images:

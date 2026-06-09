@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Sonic",
+    "slug": "sonic",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "plugins": [
+      [
+        "expo-camera",
+        { "cameraPermission": "Sonic uses the camera to photograph your records." }
+      ]
+    ],
+    "extra": {
+      "apiUrl": "http://localhost:3001"
+    }
+  }
+}

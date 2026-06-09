@@ -1,0 +1,20 @@
+{
+  "name": "sonic",
+  "private": true,
+  "version": "0.0.0",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "dev:server": "pnpm --filter @sonic/server dev",
+    "dev:web": "pnpm --filter @sonic/web dev",
+    "dev:mobile": "pnpm --filter @sonic/mobile start",
+    "migrate": "pnpm --filter @sonic/server migrate",
+    "up": "docker compose up -d --build",
+    "down": "docker compose down"
+  }
+}
