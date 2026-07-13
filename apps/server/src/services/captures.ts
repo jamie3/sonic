@@ -90,15 +90,19 @@ export async function serializeCatalogEntry(id: string): Promise<CatalogEntry> {
   const row = await db
     .selectFrom("catalog_entry as ce")
     .innerJoin("release as r", "r.id", "ce.release_id")
+    // selectAll("r") brings the release's own `id`; alias the entry id to
+    // `entry_id` so it isn't clobbered by the release `id` column.
+    .selectAll("r")
     .select([
-      "ce.id as id",
+      "ce.id as entry_id",
       "ce.condition",
       "ce.location",
+      "ce.purchase_price",
+      "ce.purchase_date",
       "ce.notes",
       "ce.approved_at",
       "ce.capture_id",
     ])
-    .selectAll("r")
     .where("ce.id", "=", id)
     .executeTakeFirstOrThrow();
 
@@ -111,10 +115,13 @@ export async function serializeCatalogEntry(id: string): Promise<CatalogEntry> {
     : [];
 
   return {
-    id: row.id,
+    id: row.entry_id,
     release: releaseToDetail(row as unknown as ReleaseRow),
     condition: (row.condition as CatalogEntry["condition"]) ?? null,
     location: row.location,
+    // pg returns numeric as a string; normalize to a number.
+    purchasePrice: row.purchase_price == null ? null : Number(row.purchase_price),
+    purchaseDate: row.purchase_date ? String(row.purchase_date) : null,
     notes: row.notes,
     approvedAt: new Date(row.approved_at).toISOString(),
     photos: photos.map((p) => ({ id: p.id, type: p.type, url: storage.url(p.storage_key) })),

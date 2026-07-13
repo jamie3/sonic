@@ -17,8 +17,31 @@ export async function saveToken(t: string | null) {
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
-const apiUrl =
-  (Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? "http://localhost:3001";
+/**
+ * Resolve the API base URL. On a physical device "localhost" points at the
+ * phone, not the dev machine — so when the configured URL is localhost, swap in
+ * the LAN IP that Expo is already serving the bundle from (Constants.hostUri,
+ * e.g. "192.168.1.20:8081").
+ */
+function resolveApiUrl(): string {
+  const configured =
+    (Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? "http://localhost:3005";
+
+  if (/\/\/(localhost|127\.0\.0\.1)/.test(configured)) {
+    const hostUri =
+      Constants.expoConfig?.hostUri ??
+      (Constants.expoGoConfig as { debuggerHost?: string } | undefined)?.debuggerHost ??
+      "";
+    const host = hostUri.split(":")[0];
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      const port = configured.match(/:(\d+)/)?.[1] ?? "3005";
+      return `http://${host}:${port}`;
+    }
+  }
+  return configured;
+}
+
+export const apiUrl = resolveApiUrl();
 
 export const api = new SonicClient({
   baseUrl: apiUrl,

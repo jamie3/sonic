@@ -86,11 +86,47 @@ export const CatalogEntry = z.object({
   release: ReleaseDetail,
   condition: Condition.nullable(),
   location: z.string().nullable(),
+  purchasePrice: z.number().nullable(),
+  purchaseDate: z.string().nullable(), // ISO date (YYYY-MM-DD)
   notes: z.string().nullable(),
   photos: z.array(CapturePhoto),
   approvedAt: z.string(),
 });
 export type CatalogEntry = z.infer<typeof CatalogEntry>;
+
+/** Editable release metadata. Identity (source/source_id) and ids are excluded. */
+export const UpdateRelease = z
+  .object({
+    artist: z.string().min(1),
+    title: z.string().min(1),
+    label: z.string().nullable(),
+    catalogNumber: z.string().nullable(),
+    barcode: z.string().nullable(),
+    year: z.number().int().min(0).max(9999).nullable(),
+    country: z.string().nullable(),
+    format: z.string().nullable(),
+    genres: z.array(z.string()),
+    styles: z.array(z.string()),
+    coverUrl: z.string().url().nullable(),
+  })
+  .partial();
+export type UpdateRelease = z.infer<typeof UpdateRelease>;
+
+/**
+ * Patch the editable columns of a catalog entry (and its release). All fields
+ * are optional — only those present are updated. `notes: null` clears it.
+ */
+export const UpdateCatalogEntry = z
+  .object({
+    condition: Condition.nullable(),
+    location: z.string().nullable(),
+    purchasePrice: z.number().nullable(),
+    purchaseDate: z.string().nullable(),
+    notes: z.string().trim().max(2000).nullable(),
+    release: UpdateRelease,
+  })
+  .partial();
+export type UpdateCatalogEntry = z.infer<typeof UpdateCatalogEntry>;
 
 export const CatalogSearchQuery = z.object({
   q: z.string().optional(),

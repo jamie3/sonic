@@ -25,5 +25,5 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /app/apps/server/dist ./dist
-EXPOSE 3001
+EXPOSE 3005
 CMD ["node", "dist/main.js", "serve"]

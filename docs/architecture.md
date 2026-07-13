@@ -353,7 +353,7 @@ services:
   api:
     build: ./server
     command: ["node", "dist/main.js", "serve"]
-    ports: [ "3001:3001" ]
+    ports: [ "3005:3005" ]
     volumes: [ "images:/data/images" ]
     environment: [ DATABASE_URL, API_TOKEN, DISCOGS_TOKEN, ANTHROPIC_API_KEY,
                    STORAGE_DRIVER=disk, IMAGE_DIR=/data/images ]

@@ -7,6 +7,6 @@ export const setToken = (t: string | null) =>
   t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
 
 export const api = new SonicClient({
-  baseUrl: import.meta.env.VITE_API_URL ?? "http://localhost:3001",
+  baseUrl: import.meta.env.VITE_API_URL ?? "http://localhost:3005",
   getToken,
 });

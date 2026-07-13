@@ -6,11 +6,12 @@ import { z } from "zod";
 
 // Load the .env file from the monorepo root (three levels up from src/).
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-dotenv.config({ path: path.join(rootDir, ".env") });
+dotenv.config({ path: path.join(rootDir, ".env"), quiet: true });
 
 const Env = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().url(),
-  PORT: z.coerce.number().default(3001),
+  PORT: z.coerce.number().default(3005),
 
   JWT_SECRET: z.string().min(16),
   AUTH_USERNAME: z.string().min(1),

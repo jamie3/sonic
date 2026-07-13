@@ -23,7 +23,7 @@ services:
     command: ["node", "dist/main.js", "serve"]
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3005:3005"
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
       JWT_SECRET: ${JWT_SECRET}
@@ -66,7 +66,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3005}
     restart: unless-stopped
     ports:
       - "3000:80"

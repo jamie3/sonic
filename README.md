@@ -45,7 +45,7 @@ docker compose up -d --build             # db + api + worker + web
 pnpm --filter @sonic/server migrate      # run DB migrations (first time)
 ```
 
-- API → http://localhost:3001
+- API → http://localhost:3005
 - Web → http://localhost:3000
 
 ### Development (without Docker for the apps)

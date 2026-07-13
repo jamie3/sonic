@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { api, loadToken, saveToken } from "./api.js";
+import { api, apiUrl, loadToken, saveToken } from "./api.js";
 
 const queryClient = new QueryClient();
 
@@ -32,11 +32,21 @@ export function App() {
 function Login({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function submit() {
-    const res = await api.login({ username, password });
-    await saveToken(res.token);
-    onLogin();
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.login({ username, password });
+      await saveToken(res.token);
+      onLogin();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -44,7 +54,9 @@ function Login({ onLogin }: { onLogin: () => void }) {
       <Text style={{ fontSize: 28, fontWeight: "600" }}>Sonic</Text>
       <TextInput placeholder="username" autoCapitalize="none" value={username} onChangeText={setUsername} />
       <TextInput placeholder="password" secureTextEntry value={password} onChangeText={setPassword} />
-      <Button title="Log in" onPress={submit} />
+      <Button title={busy ? "Signing in…" : "Log in"} onPress={submit} disabled={busy} />
+      {error && <Text style={{ color: "crimson" }}>{error}</Text>}
+      <Text style={{ color: "#888", fontSize: 12 }}>API: {apiUrl}</Text>
     </View>
   );
 }

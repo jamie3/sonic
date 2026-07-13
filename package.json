@@ -13,7 +13,9 @@
     "dev:server": "pnpm --filter @sonic/server dev",
     "dev:web": "pnpm --filter @sonic/web dev",
     "dev:mobile": "pnpm --filter @sonic/mobile start",
-    "migrate": "pnpm --filter @sonic/server migrate",
+    "db:migrate": "pnpm --filter @sonic/server db:migrate",
+    "db:seed": "pnpm --filter @sonic/server db:seed",
+    "db:reset": "pnpm --filter @sonic/server db:reset",
     "up": "docker compose up -d --build",
     "down": "docker compose down"
   }

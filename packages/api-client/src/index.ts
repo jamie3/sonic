@@ -9,6 +9,7 @@ import type {
   LoginRequest,
   LoginResponse,
   ResolveRequest,
+  UpdateCatalogEntry,
 } from "@sonic/shared";
 
 export interface SonicClientOptions {
@@ -86,6 +87,11 @@ export class SonicClient {
 
   getCatalogEntry(id: string): Promise<CatalogEntry> {
     return this.request("GET", `/catalog/${id}`);
+  }
+
+  /** Update a catalog entry's note. Pass `notes: null` to clear it. */
+  updateCatalogEntry(id: string, body: UpdateCatalogEntry): Promise<CatalogEntry> {
+    return this.request("PATCH", `/catalog/${id}`, { body });
   }
 
   // --- internals ---
