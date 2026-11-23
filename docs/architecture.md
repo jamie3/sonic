@@ -9,7 +9,7 @@
 ## 1. Guiding Principles
 
 - **TypeScript everywhere, one workspace** — a **pnpm monorepo** lets mobile,
-  web, API, and worker share types, Zod schemas, and a typed API client from
+  web, API, and background apps share types, Zod schemas, and a typed API client from
   `packages/`. The contract is defined once and imported everywhere.
 - **Local-first, container-deployed** — runs on a single machine via Docker
   Compose now (Mac mini / dev machine). Designed so individual pieces (storage,
@@ -20,7 +20,7 @@
   everything (see product doc §5–6). The architecture reflects this with an
   explicit capture → pending → approved lifecycle.
 - **Minimal moving parts** — no Redis, no extra brokers. The job queue lives in
-  Postgres so the whole system is just *API + worker + Postgres + a disk volume*.
+  Postgres so the whole system is just *API + background apps (extractor, matcher) + Postgres + a disk volume*.
 
 ## 2. High-Level Architecture
 
@@ -40,8 +40,8 @@
 │  Docker Compose host (Mac mini / dev machine)              │
 │                                                            │
 │  ┌──────────────────┐      ┌──────────────────────────┐   │
-│  │  API service      │      │  Worker (recognition)     │   │
-│  │  (Fastify, TS)    │      │  (same image, queue mode) │   │
+│  │  API service      │      │  Matcher (apps/matcher)   │   │
+│  │  (Fastify, TS)    │      │  (own app + image)        │   │
 │  │  - upload images  │      │  - barcode / OCR          │   │
 │  │  - enqueue jobs   │─────▶│  - vision LLM fallback    │   │
 │  │  - approval API   │ jobs │  - Discogs lookup         │   │
@@ -79,10 +79,11 @@
 | Vision | **Claude Vision API** behind a `VisionExtractor` interface | Strong structured extraction from messy photos; swappable for a local Ollama vision model (e.g. Qwen2-VL / Llama 3.2 Vision). |
 | Barcode | On-device (`expo-camera`) + server-side fallback | Cheapest, most reliable signal when a barcode exists. |
 | OCR | **Tesseract** (server) | Free, local, good enough for catalog numbers / label text. |
-| Deploy | **Docker Compose** | One command to bring up api + worker + db; reproducible. |
+| Deploy | **Docker Compose**, one image per app | `app` (Fastify API + the built SPA), `matcher` and `extractor`, all from the root `Dockerfile` (build targets). |
 
-> The API and worker are the **same image** run with different commands
-> (`serve` vs `work`), so there's one build to maintain.
+> The API, matcher and extractor are **separate apps** sharing `@sonic/core`;
+> each has its own process and image, so a slow or crashed background job never
+> affects the API.
 
 ## 3a. Repository Layout (pnpm workspaces)
 
@@ -93,10 +94,14 @@ sonic/
 ├─ tsconfig.base.json
 ├─ docker-compose.yml
 ├─ apps/
-│  ├─ server/              # Fastify API + recognition worker (one image)
+│  ├─ server/              # Fastify API (HTTP layer only) + serves the built SPA
+│  ├─ matcher/             # Discogs matching + daily trash purge
+│  ├─ extractor/           # reads capture photos → text/fields
+│  ├─ discogs/             # Discogs XML dump importer
 │  ├─ web/                 # Vite + React SPA
 │  └─ mobile/              # Expo / React Native
 ├─ packages/
+│  ├─ core/                # @sonic/core — config, DB, queue, storage, repositories, services, matching
 │  ├─ shared/              # @sonic/shared — types, Zod schemas, enums (the contract)
 │  └─ api-client/          # @sonic/api-client — typed client over the API
 └─ docs/
@@ -121,7 +126,7 @@ sonic/
 - **Pending Approval queue** — lists captures grouped by outcome (single /
   multiple / no-match). Supports **bulk select + approve** for single-match
   records; multiple/no-match items open a disambiguation or manual-entry screen.
-- **Library** — cover-art grid; **search/filter** (artist, label, year, genre,
+- **Library** — cover-art grid; **search/filter** (artist, label, year, tag,
   location, condition) served by the catalog API.
 - Configurable **API base URL**; logs in and stores the **JWT** in secure
   storage.
@@ -137,6 +142,8 @@ The richer client, for when you're at a desk rather than holding records:
 
 ### 4.2 API Service (Fastify)
 Responsibilities:
+All routes are served under the `/api` prefix (e.g. `POST /api/captures`).
+
 - `POST /captures` — create a capture; accept uploaded photos (multipart),
   persist them via the storage interface, record `capture_photo` rows, and
   enqueue a `recognize` job.
@@ -148,16 +155,96 @@ Responsibilities:
 - `GET /catalog`, `GET /catalog/:id` — browse/search the library.
 - `GET /catalog/search?q=` — full-text search over cached release metadata.
 - Static-but-protected **image serving** (or signed local paths) for the app.
-- `POST /auth/login` — username/password → JWT; `GET /auth/me`.
-- **Auth:** JWT verified on every protected request (Fastify `preHandler`). The
-  single user's credentials are seeded from env (`AUTH_USERNAME`,
-  `AUTH_PASSWORD_HASH`, `JWT_SECRET`). A `users` table can replace the seeded
-  account when multi-user arrives — the token flow stays the same.
+- **Accounts — Better Auth** (`apps/server/src/auth.ts`, bridged into Fastify
+  at `/api/auth/*` by `routes/better-auth.ts`): username + password sign-in
+  (username plugin), sign-up, sign-out, change password (with "sign out other
+  devices"), sessions in Postgres (`users`, `sessions`, `accounts`,
+  `verifications`, snake_case). Passwords are bcrypt. Web uses the same-origin
+  session cookie; the Expo app stores the cookie in SecureStore (`@better-auth/expo`)
+  and sends it as a header. `requireAuth` resolves the session on every
+  protected request (no cookie cache, so revoking a session takes effect
+  immediately) and sets `req.authUser`.
+- **Invite-only sign-up** (`invites` table): a Better Auth `before` hook on
+  `/sign-up/email` atomically claims the `inviteCode` (released if sign-up
+  fails, marked used after). The first account on a fresh install needs none.
+  Users create codes on the Profile page (`/api/invites`, ≤5 unused, 14-day
+  expiry, single use) or with `pnpm invite:create`. Sign-up links:
+  `/signup?invite=CODE`.
+- **Per-user data:** `capture` and `catalog_entry` have a `user_id`; every
+  user-facing repository method takes a required `owner` (a user id, or `null`
+  for background jobs), so a missed scope is a type error. Photos are served
+  only to their capture's owner. Tags are a shared name list but listed/counted
+  per user. The release cache and Discogs data are shared; editing a record's
+  details gives that entry its own `edited` copy of the release instead of
+  changing the shared row. Trash is per user (the daily expiry purge is global).
+- `GET /profile` — the signed-in account plus library counts.
+- **Abuse protection** (`@fastify/rate-limit` + Better Auth rate limits +
+  `apps/server/src/security/`): every `/api` route is capped per client IP
+  (`API_RATE_LIMIT`, default 600/min; `/api/health` exempt); Better Auth caps
+  sign-in (10/min), sign-up (5/hour) and change-password (5/min) per IP; 5
+  wrong passwords for a username from one IP within 15 min lock that pair out
+  for 15 min (429 + `Retry-After`). State-changing `/api` requests whose
+  `Origin` is an untrusted site are refused (CSRF backstop; the session cookie
+  is also SameSite=Lax). State is in memory — fine for one API process. Behind
+  a reverse proxy set `TRUST_PROXY=true` so limits see real client IPs.
 
-### 4.3 Recognition Worker
-A separate process (same image) consuming `recognize` jobs from pg-boss. Runs the
-cascade in §6 and writes `identification_candidate` rows + sets the capture's
-status. Long-running external calls (Claude, Discogs) never block the API.
+**Code layout** — layered MVC on Fastify, dependencies point downward only.
+The HTTP layers (routes, schemas, controllers) live in `apps/server/src`;
+everything below them lives in `packages/core/src` (`@sonic/core`), shared with
+the matcher and extractor:
+
+| Layer | Folder | Responsibility |
+|---|---|---|
+| Routes | `routes/` | Fastify plugins: URL + method + schema + `preHandler` (auth) → controller method. No logic. |
+| Schemas | `schemas/` | The HTTP contract per route, built from `@sonic/shared` zod schemas: params, query, body, responses, OpenAPI tags/summary. |
+| Controllers | `controllers/` | HTTP concerns only (status codes, cookies, JWT signing, multipart parsing). Input arrives already validated and typed. |
+| Services | `services/` | Business rules. Throw `AppError`s from `errors.ts`; never touch Fastify. |
+| Repositories | `repositories/` | All Kysely SQL. `TransactionRunner` gives services transaction-bound repositories. |
+| Views | `mappers/` | DB rows → `@sonic/shared` DTOs. |
+
+- **Validation & serialization:** `fastify-type-provider-zod` (v4, zod 3). Fastify
+  validates requests and serializes responses against the route schemas, so a
+  response that drifts from its contract fails loudly (logged, generic 500)
+  and unknown fields are stripped.
+- **DI:** `services/index.ts#createServices` wires repositories → services;
+  `plugins/services.ts` decorates the Fastify instance with them
+  (`app.services`), and route plugins build their controllers from it. The
+  matcher (`apps/matcher`) calls `createServices` directly. `buildServer(services)` accepts fakes
+  for tests.
+- **Errors:** the global handler in `server.ts` returns `{ error }` JSON for
+  everything — validation failures add `issues: [{ path, message }]`; unexpected
+  errors are logged and returned as a generic 500.
+- **API docs:** OpenAPI generated from the schemas (`@fastify/swagger`), Swagger
+  UI at `/api/docs`, spec at `/api/docs/json`. On by default outside production;
+  set `API_DOCS=true|false` to override.
+
+### 4.3a Extractor (separate app — `apps/extractor`)
+Capture lifecycle: `processing` → **extractor** → `review` → (later) **matching**
+→ `pending_single | pending_multiple | pending_nomatch` → `approved`.
+
+- Uploads enqueue an `extract` job (pg-boss). The extractor — its own package,
+  process (`pnpm dev:extractor`) and Docker service (`--target extractor`) —
+  reads the capture's photos, stores the result in `capture_extraction`
+  (structured fields: artist, title, label, catalog no., barcode, year, country,
+  format, tracklist; plus a verbatim transcription of all legible text), and
+  moves the capture to `review` in one transaction.
+- **Engines** (`EXTRACTOR_ENGINE`): `claude` (default; `claude-opus-5-5` with
+  structured outputs, validated with zod; server-side refusal fallbacks on),
+  `ollama` (local vision model, schema-constrained JSON), `tesseract` (offline
+  OCR, raw text + barcode only). `EXTRACTOR_MODEL`, `EXTRACTOR_CONCURRENCY`.
+- The prompt asks for what is *printed*, not what the model knows about the
+  release — the matching stage needs the item's own text.
+- Reuses the DB, queue, storage and repositories from `@sonic/core`
+  (`@sonic/core/db`, `/queue`, `/repositories`, …).
+- Robustness: skips captures no longer `processing` (duplicates, trashed);
+  after the final retry it still moves the capture to `review` with the error
+  recorded; re-queues captures whose job was lost on start and every 5 min.
+
+### 4.3 Matcher (matching stage + housekeeping — `apps/matcher`)
+Its own app, process (`pnpm dev:matcher`) and Docker image (`--target
+matcher`): the `recognize` stage — captures in `review` (fed by the extractor)
+are matched against Discogs (cascade in §6), writing candidates for approval —
+plus the daily trash purge. Long-running external calls never block the API.
 
 ### 4.4 Image Storage (pluggable)
 ```ts
@@ -169,8 +256,21 @@ interface ImageStorage {
 }
 ```
 - **Now:** `LocalDiskStorage` writing to a mounted volume (e.g. `/data/images`),
-  keyed by `captures/{captureId}/{photoType}.jpg`.
+  keyed by `captures/{captureId}/{photoType}-{attempt}.jpg` (the per-upload
+  suffix means files are never overwritten, so they're served with
+  `Cache-Control: private, max-age=31536000, immutable`).
 - **Later:** `S3Storage` with the same interface; only the wiring changes.
+- **One stored format** (`images/processor.ts`, sharp): every upload is
+  re-encoded to progressive JPEG (mozjpeg q82, 4:2:0, sRGB), long edge ≤ 2560px,
+  auto-rotated from EXIF, all metadata (incl. GPS) stripped; width/height are
+  recorded on `capture_photo`. JPEG for maximum compatibility (every browser/OS,
+  OCR and vision APIs). Accepts JPEG/PNG/WebP/AVIF; HEIC is rejected (400).
+
+**Mobile offline uploads.** The app saves each capture (photos + manifest)
+under its document directory before sending, then a queue retries on
+reconnect, app foreground, every 30s, or on demand. The client picks the
+capture id and sends it as `captureId`; the API is idempotent on it (a resend
+returns the existing capture with 200), so retries never duplicate.
 
 ### 4.5 Metadata Sources (pluggable)
 ```ts
@@ -203,8 +303,8 @@ release                       -- cached canonical metadata from a source
   year            int
   country         text
   format          text         -- e.g. 'Vinyl, 12", 33 ⅓ RPM'
-  genres          text[]
-  styles          text[]
+  source_tags     text[]       -- source classifications (Discogs genres + styles);
+                                --  only used to seed tags on approval
   cover_url       text
   tracklist       jsonb
   raw             jsonb         -- full source payload
@@ -248,9 +348,36 @@ catalog_entry                  -- the owner-approved copy that lives in the libr
   notes           text
   approved_at     timestamptz
   created_at      timestamptz
+
+tag                            -- owner-defined label: genre, style, category, group…
+  id              uuid pk
+  name            text         -- unique case-insensitively (index on lower(name))
+  created_at      timestamptz
+
+catalog_entry_tag
+  catalog_entry_id uuid fk -> catalog_entry (cascade)
+  tag_id           uuid fk -> tag (cascade)
+  pk(catalog_entry_id, tag_id)
 ```
 
 Modeling notes:
+- **Trash (soft delete).** `catalog_entry.deleted_at` / `capture.deleted_at`
+  (migration 003). Trashed rows are excluded from every normal read (catalog,
+  search, tag counts, review/unidentified lists, recognition). `DELETE
+  /catalog/:id` and `DELETE /captures/:id` move to the trash; `GET /trash`,
+  `POST /trash/:kind/:id/restore`, `DELETE /trash/:kind/:id` (forever),
+  `DELETE /trash` (empty). Permanent deletion removes rows in a transaction,
+  then the photo files, and only ever acts on trashed rows. The **purge** runs
+  daily at 03:15 UTC as a pg-boss cron job in the matcher (schedule stored in
+  Postgres) and deletes items trashed more than `TRASH_RETENTION_DAYS`
+  (default 30) ago. pg-boss rather than `pg_cron` because purging must delete
+  image files too, which SQL can't; `pnpm trash:purge` (apps/matcher)
+  runs it once for an external cron.
+- **Tags replace genres/styles.** They belong to the copy (`catalog_entry`), not
+  the shared release. On approval an entry is tagged from its release's
+  `source_tags`; afterwards the owner edits them freely (`PATCH /catalog/:id`
+  with `tags` replaces the set; `GET /tags` lists tags with counts;
+  `GET /catalog/search?tag=` filters). Unused tags are pruned on edit.
 - `release` ≈ a Discogs *release*; `catalog_entry` ≈ *your copy* — the
   release/copy split from product doc §4.
 - The library = `catalog_entry` joined to `release`. Search runs over `release`
@@ -258,55 +385,50 @@ Modeling notes:
 - Multiple-match captures get several `identification_candidate` rows; approval
   promotes the chosen one into a `catalog_entry`.
 
-## 6. Recognition Pipeline (the cascade)
-
-Triggered by a `recognize` job after upload. Each stage tries to produce a
-confident set of `ReleaseMatch`es; we stop at the first stage that yields a clean
-result, but always end by resolving against the metadata sources.
+## 6. Capture Pipeline (extract → match → approve)
 
 ```
-            ┌──────────────────────────────┐
-            │ 1. Barcode                    │  on-device hint, else decode
-            │    barcode → Discogs lookup   │  from photo (zxing/quagga)
-            └───────────────┬──────────────┘
-                 hit?        │ no / none
-            ┌────────────────▼─────────────┐
-            │ 2. OCR (Tesseract)            │  read catalog # + label text
-            │    catalog# → Discogs lookup  │  from label/back photos
-            └───────────────┬──────────────┘
-                 hit?        │ no / weak
-            ┌────────────────▼─────────────┐
-            │ 3. Vision LLM (Claude)        │  extract {artist,title,label,cat#}
-            │    behind VisionExtractor     │  as structured JSON
-            └───────────────┬──────────────┘
-                            │ extracted fields
-            ┌────────────────▼─────────────┐
-            │ 4. Metadata search            │  Discogs (then MusicBrainz)
-            │    by fields → ReleaseMatch[] │  normalize + cache to `release`
-            └───────────────┬──────────────┘
-                            │
-            ┌────────────────▼─────────────┐
-            │ 5. Resolve outcome            │
-            │   1 match  → pending_single   │
-            │   >1 match → pending_multiple │
-            │   0 match  → pending_nomatch  │
-            └──────────────────────────────┘
+ upload ─► processing ──(extractor app)──► review ──(matcher)──► pending_single
+                          read photos:              search Discogs with       pending_multiple
+                          fields + verbatim text    the extracted fields,     pending_nomatch
+                          → capture_extraction      quality-check candidates      │
+                                                    → candidates + capture_match  │ owner approves
+                                                                                  ▼
+                                                                              approved  (catalog entry)
 ```
 
-- **Barcode** is the strongest signal — captured on-device when possible, with a
-  server-side decode fallback from the uploaded photos.
-- **OCR** targets the catalog number (very distinctive for vinyl) and label name.
-- **Vision LLM** is the fallback for messy/handwritten/obscured cases. The
-  `VisionExtractor` interface lets us run **Claude Vision** or a **local Ollama
-  vision model** (Qwen2-VL, Llama 3.2 Vision, moondream) via config — useful for
-  cost control and fully-offline operation.
-- **No scoring** is surfaced. The outcome is purely *how many releases matched*
-  (product doc §6.3): one → confirm, many → disambiguate, none → manual.
+1. **Extract** (`apps/extractor`, §4.3a): photos → structured fields + all
+   legible text → `review`, then queues a `recognize` (matching) job.
+2. **Match** (matcher, `services/matching.service.ts`): searches Discogs with the
+   extracted fields, strongest identifier first — barcode, then catalog number
+   (+ artist), then artist + title only if those found nothing. Searches the
+   local data-dump copy (`discogs_*` tables); when that finds nothing and
+   `DISCOGS_TOKEN` is set, the same searches run against the Discogs API
+   (rate-limited, so only for misses; `DISCOGS_API_FALLBACK=false` turns it
+   off). Only releases of the capture's media kind are considered — vinyl
+   never matches CD (`matching/media.ts`). The owner can ask for a fresh
+   search any time before approval ("Re-scan", `POST /captures/:id/match`).
+3. **Quality check** (`matching/score.ts`): every candidate is compared with
+   what was read, field by field — barcode and catalog number exact (barcode
+   UPC/EAN-normalised), artist / title / label by similarity (case, accents,
+   punctuation, "The" ignored), year exact. Weighted into a 0–1 score; each
+   field's verdict (match / partial / mismatch / missing) is stored and shown.
+   Candidates below 0.4, or with a different title and no matching identifier,
+   are dropped. **pending_single** when one remains or the best is ≥ 0.75 and
+   ≥ 0.15 ahead; otherwise **pending_multiple**; none → **pending_nomatch**.
+4. **No match is fine**: no DISCOGS_TOKEN (outcome `skipped`), nothing found
+   (`no_match`), or the search failed after retries (`error`) all end in
+   pending_nomatch with the reason in `capture_match`.
+5. **Approve** (owner, web Review queue): a candidate (`POST
+   /captures/:id/approve`), or the AI's reading corrected in a form (`POST
+   /captures/:id/resolve` → a `source: manual` release). Either creates the
+   catalog entry and sets `approved`, which removes it from review. "Read photos
+   again" (`POST /captures/:id/extract`) restarts at step 1 any time before
+   approval.
 
-> **Match criteria (open):** how close two Discogs pressings must be before we
-> show both for disambiguation vs. collapse to one. For vinyl this matters a lot —
-> one release often has many near-identical pressings. Default stance: **prefer
-> showing candidates over guessing** (product doc §6 note).
+> **Open:** thresholds (0.4 / 0.75 / 0.15) are first guesses — tune them on real
+> captures. Vinyl has many near-identical pressings, so the default stance is to
+> show several candidates rather than guess.
 
 ## 7. Key Flows
 
@@ -317,7 +439,7 @@ App → API: POST /captures (multipart photos, barcode_hint)
 API: store photos (ImageStorage), insert capture + capture_photo, status=processing
 API → pg-boss: enqueue recognize(captureId)
 API → App: 201 { captureId, status: processing }
-Worker: run cascade (§6), write candidates, set status pending_*
+Matcher: run cascade (§6), write candidates, set status pending_*
 App: poll/refresh GET /captures?status=pending  (or push later)
 Owner: approve single / choose / manual-resolve
 App → API: POST approve | resolve
@@ -341,46 +463,38 @@ API → App: results with cover_url, key metadata
 
 ## 8. Deployment (Docker Compose)
 
-Three services from two images (api/worker share one):
+Four services; the app images are build targets of the root `Dockerfile`:
 
 ```yaml
-# sketch — not final
 services:
-  db:
-    image: postgres:16
-    volumes: [ "pgdata:/var/lib/postgresql/data" ]
-    environment: [ POSTGRES_PASSWORD, POSTGRES_DB=sonic ]
-  api:
-    build: ./server
-    command: ["node", "dist/main.js", "serve"]
-    ports: [ "3005:3005" ]
-    volumes: [ "images:/data/images" ]
-    environment: [ DATABASE_URL, API_TOKEN, DISCOGS_TOKEN, ANTHROPIC_API_KEY,
-                   STORAGE_DRIVER=disk, IMAGE_DIR=/data/images ]
-    depends_on: [ db ]
-  worker:
-    build: ./apps/server
-    command: ["node", "dist/main.js", "work"]
-    volumes: [ "images:/data/images" ]
-    environment: [ DATABASE_URL, DISCOGS_TOKEN, ANTHROPIC_API_KEY, VISION_DRIVER ]
-    depends_on: [ db ]
-  web:
-    build: ./apps/web        # built static SPA served by nginx (or vite preview)
-    ports: [ "3000:80" ]
-    environment: [ VITE_API_URL ]   # baked at build; points at the API
-volumes: { pgdata: {}, images: {} }
+  db:      postgres:16                      # pgdata volume
+  app:       sonic image (default target), apps/server
+             # API under /api + the built web app (static, SPA fallback) on :3005
+  matcher:   sonic-matcher image (--target matcher), apps/matcher
+             # Discogs matching + trash purge; shares the images volume and env
+  extractor: sonic-extractor image (--target extractor), apps/extractor
+             # reads capture photos; images volume read-only
 ```
 
-- The **web app** is a static build (nginx). Mobile and web both reach the API
-  over the LAN or **Tailscale** (fits the existing Mac mini setup). API base URL
-  is configured per client.
-- OCR (`tesseract`) and any barcode decoder are installed in the server image.
+- The **web app** is built with Vite at image build time and copied to
+  `/app/public` (`WEB_DIR`); Fastify serves it with `@fastify/static`. Unknown
+  non-`/api` GETs that accept HTML get `index.html`, so client routes survive a
+  refresh. One origin means no CORS and no build-time API URL — the web client
+  calls `/api` relatively. In dev, Vite proxies `/api` to the server.
+- `apps/web` and `apps/server` remain separate workspace packages (different
+  runtimes, deps and tsconfig libs); they're combined only in the image.
+- **Photos** are protected by the JWT. API calls send it as a Bearer header;
+  because `<img>` can't send headers, login also sets an httpOnly, SameSite=Strict
+  cookie scoped to `/api/images` only.
+- Mobile reaches the API over the LAN or **Tailscale** (fits the existing Mac
+  mini setup) at `…:3005/api`.
+- OCR (`tesseract`) and any barcode decoder are installed in the image.
 
 ## 9. Configuration & Secrets
 
 Environment-driven, so nothing is hard-coded and cloud migration is config-only:
 - `DATABASE_URL`
-- `JWT_SECRET`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` — single-user login
+- `JWT_SECRET` (or `BETTER_AUTH_SECRET`), `BETTER_AUTH_URL` — accounts (Better Auth)
 - `DISCOGS_TOKEN` (+ user agent), optional `MUSICBRAINZ_*`
 - `ANTHROPIC_API_KEY` — for Claude Vision (omit when using local vision)
 - `STORAGE_DRIVER` = `disk` | `s3` (+ `IMAGE_DIR` or S3 creds)
@@ -389,7 +503,7 @@ Environment-driven, so nothing is hard-coded and cloud migration is config-only:
 ## 10. Migration Path (later, no rewrite)
 
 - **Disk → S3:** implement `S3Storage`, flip `STORAGE_DRIVER`; backfill keys.
-- **Local → cloud:** the API/worker are stateless containers — deploy them to any
+- **Local → cloud:** the API and background apps are stateless containers — deploy them to any
   container host; point `DATABASE_URL` at managed Postgres (e.g. Neon).
 - **Claude → local LLM (or vice-versa):** flip `VISION_DRIVER`.
 - **Single- → multi-user:** add a `user_id` column to `capture`/`catalog_entry`

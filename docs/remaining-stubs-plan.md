@@ -3,7 +3,7 @@
 Three stubbed features remain. They are independent and can be tackled in any
 order. Recorded here for later; current focus is the web app.
 
-## 1. Mobile camera capture flow (`apps/mobile`)
+## 1. Mobile camera capture flow (`apps/mobile`) — ✅ done
 
 The primary use case. Guided multi-photo capture + on-device barcode scan, then
 `createCapture`.

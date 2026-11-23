@@ -12,10 +12,15 @@ collection from the web app.
 
 ```
 apps/
-  server/   Fastify API + recognition worker (one image, two commands)
-  web/      Vite + React SPA — login, browse/search, advanced features
+  server/     Fastify API (+ serves the built web app) — HTTP layer only
+  matcher/    background app: Discogs matching + daily trash purge
+  extractor/  background app: reads capture photos → text/fields
+  discogs/    imports the Discogs XML dumps into Postgres (discogs_* tables)
+  web/      Vite + React + shadcn/ui SPA — login, browse/search, advanced features
   mobile/   Expo / React Native — capture-focused
 packages/
+  core/        @sonic/core — config, DB + migrations, queue, storage, repositories,
+               services, Discogs lookup + matching (shared by server/matcher/extractor)
   shared/      @sonic/shared — types, Zod schemas, enums (the API contract)
   api-client/  @sonic/api-client — typed client used by web + mobile
 docs/
@@ -37,32 +42,47 @@ docs/
 
 ```bash
 cp env.sample .env                       # then fill in secrets
-# generate your login password hash:
 pnpm install
-pnpm --filter @sonic/server hash-password "your-password"   # paste into AUTH_PASSWORD_HASH
-
-docker compose up -d --build             # db + api + worker + web
-pnpm --filter @sonic/server migrate      # run DB migrations (first time)
+docker compose up -d --build             # db + app + matcher + extractor
+pnpm db:migrate                          # run DB migrations (first time)
 ```
 
-- API → http://localhost:3005
-- Web → http://localhost:3000
+Then open the app and **create an account** — on a fresh install the first
+sign-up needs no invite. After that sign-up is invite-only: create codes on the
+Profile page (each is single-use, valid 14 days, with a copyable sign-up link)
+or with `pnpm invite:create`. Each account has its own catalog.
+
+Everything is served from one origin at http://localhost:3005 — the web app at
+`/`, the API under `/api`.
+
+### Deployment model
+
+The root [`Dockerfile`](./Dockerfile) builds one image per app: `app` (the
+Fastify server plus the built web app — Fastify serves the SPA's static files
+with an `index.html` fallback for client-side routes), `matcher` and
+`extractor`, so slow background jobs never block requests. The node apps run
+their TypeScript with tsx and share `@sonic/core`; `web` and `server` stay
+separate workspace packages, combined only at build time.
 
 ### Development (without Docker for the apps)
 
 ```bash
+nvm use                        # Node 22 (.nvmrc); Expo SDK 58 requires >= 22.13
 docker compose up -d db        # just Postgres
-pnpm migrate                   # migrations
-pnpm dev:server                # API + (separately) worker
-pnpm dev:web                   # Vite dev server
-pnpm dev:mobile                # Expo
+pnpm db:migrate                # migrations
+pnpm dev                       # all of the below except mobile, in one terminal (starts the db container first)
+pnpm dev:server                # API on :3005 — docs at http://localhost:3005/api/docs
+pnpm dev:extractor             # extractor app (separate terminal): reads photos → text/fields → "review" (Claude by default)
+pnpm dev:matcher               # matcher: Discogs matching stage + daily trash purge (separate terminal)
+pnpm dev:web                   # Vite on :5173, proxies /api → :3005
+pnpm dev:mobile                # Expo SDK 58 — scan the QR with Expo Go (same Wi-Fi)
 ```
 
 ## Configuration
 
 All config is environment-driven (see [`env.sample`](./env.sample)) so moving
 storage to S3 or the whole stack to the cloud is a config change, not a rewrite.
-Key vars: `DATABASE_URL`, `JWT_SECRET` / `AUTH_USERNAME` / `AUTH_PASSWORD_HASH`,
+Key vars: `DATABASE_URL`, `JWT_SECRET` (or `BETTER_AUTH_SECRET`), `BETTER_AUTH_URL`,
 `DISCOGS_TOKEN`, `VISION_DRIVER` (`claude` | `ollama`) + the matching keys.
 
 ## How recognition works
