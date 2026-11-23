@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Disc3, Pencil, Plus, Tag, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { SonicApiError } from "@sonic/api-client";
-import type { CatalogEntry } from "@sonic/shared";
+import type { CatalogEntry, PhotoType } from "@sonic/shared";
 import { api } from "@/api";
 import { AppHeader } from "@/components/AppHeader";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ImageLightbox, type LightboxImage } from "@/components/ImageLightbox";
+import type { TrashedState } from "@/pages/CatalogPage";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +30,6 @@ export function RecordDetailPage({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-svh bg-background">
       <AppHeader onLogout={onLogout}>
-        <span className="text-muted-foreground">/</span>
         <Link to="/" className="text-muted-foreground hover:text-foreground">
           Catalog
         </Link>
@@ -63,39 +65,98 @@ export function RecordDetailPage({ onLogout }: { onLogout: () => void }) {
   );
 }
 
+/** Captions for the owner's photos in the image viewer. */
+const PHOTO_LABELS: Record<PhotoType, string> = {
+  front: "Front",
+  back: "Back",
+  label_a: "Label — side A",
+  label_b: "Label — side B",
+  spine: "Spine",
+};
+
 function RecordDetail({ entry }: { entry: CatalogEntry }) {
   const { release } = entry;
+
+  // Every image of this record, in viewer order: the Discogs cover, then the photos.
+  const images: LightboxImage[] = [
+    ...(release.coverUrl ? [{ src: release.coverUrl, label: "Cover (Discogs)" }] : []),
+    ...entry.photos.map((p) => ({ src: p.url, label: PHOTO_LABELS[p.type] ?? p.type })),
+  ];
+  const photoOffset = release.coverUrl ? 1 : 0;
+  const [viewing, setViewing] = useState<number | null>(null);
+
+  // Main image: the Discogs cover, else the owner's front photo, else any
+  // photo. One that fails to load (e.g. a dead Discogs URL) falls through to
+  // the next; with nothing left, a record graphic.
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const frontIndex = entry.photos.findIndex((p) => p.type === "front");
+  const order = [
+    ...(release.coverUrl ? [0] : []),
+    ...(frontIndex >= 0 ? [photoOffset + frontIndex] : []),
+    ...entry.photos.map((_, i) => photoOffset + i),
+  ];
+  const heroIndex = order.find((i) => images[i] && !failed.has(images[i]!.src));
+  const hero = heroIndex !== undefined ? images[heroIndex] : undefined;
 
   return (
     <div className="grid gap-8 md:grid-cols-[320px_1fr]">
       <div className="space-y-4">
         <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
-          {release.coverUrl ? (
-            <img
-              src={release.coverUrl}
-              alt={`${release.artist} — ${release.title}`}
-              className="h-full w-full object-cover"
-            />
+          {hero ? (
+            <button
+              type="button"
+              onClick={() => setViewing(heroIndex!)}
+              aria-label={`View ${hero.label.toLowerCase()} full size`}
+              className="block h-full w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <img
+                key={hero.src}
+                src={hero.src}
+                alt={`${release.artist} — ${release.title}`}
+                onError={() => setFailed((prev) => new Set(prev).add(hero.src))}
+                className="h-full w-full object-cover transition-opacity hover:opacity-90"
+              />
+            </button>
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              No cover
+            <div
+              role="img"
+              aria-label={`${release.artist} — ${release.title} (no image)`}
+              className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-muted to-accent text-muted-foreground"
+            >
+              <Disc3 className="size-20 opacity-40" strokeWidth={1.25} />
+              <span className="max-w-[80%] truncate text-center text-sm font-medium">{release.title}</span>
             </div>
           )}
         </div>
 
         {entry.photos.length > 0 && (
           <div className="grid grid-cols-4 gap-2">
-            {entry.photos.map((p) => (
-              <img
+            {entry.photos.map((p, i) => (
+              <button
                 key={p.id}
-                src={p.url}
-                alt={p.type}
-                title={p.type}
-                className="aspect-square w-full rounded-md border object-cover"
-              />
+                type="button"
+                onClick={() => setViewing(photoOffset + i)}
+                aria-label={`View photo: ${PHOTO_LABELS[p.type] ?? p.type}`}
+                title={PHOTO_LABELS[p.type] ?? p.type}
+                className="cursor-zoom-in overflow-hidden rounded-md border focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <img
+                  src={p.url}
+                  alt={PHOTO_LABELS[p.type] ?? p.type}
+                  className="aspect-square w-full object-cover transition-opacity hover:opacity-90"
+                />
+              </button>
             ))}
           </div>
         )}
+
+        <ImageLightbox
+          images={images}
+          index={viewing}
+          onIndexChange={setViewing}
+          onClose={() => setViewing(null)}
+          title={`${release.artist} — ${release.title}: images`}
+        />
       </div>
 
       <div className="space-y-8">
@@ -105,25 +166,34 @@ function RecordDetail({ entry }: { entry: CatalogEntry }) {
               <h1 className="text-3xl font-semibold tracking-tight">{release.title}</h1>
               <p className="mt-1 text-lg text-muted-foreground">{release.artist}</p>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/catalog/${entry.id}/edit`}>
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </Link>
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/catalog/${entry.id}/edit`}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Link>
+              </Button>
+              <MoveToTrash entry={entry} />
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {release.genres.map((g) => (
-              <Badge key={g} variant="secondary">
-                {g}
-              </Badge>
-            ))}
-            {release.styles.map((s) => (
-              <Badge key={s} variant="outline">
-                {s}
-              </Badge>
-            ))}
-          </div>
+          {entry.tags.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2" aria-label="Tags">
+              {entry.tags.map((tag) => (
+                <li key={tag}>
+                  <Link
+                    to={`/?tag=${encodeURIComponent(tag)}`}
+                    title={`Show everything tagged “${tag}”`}
+                    className="rounded-md focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    <Badge variant="secondary" className="hover:bg-accent">
+                      <Tag className="size-3" />
+                      {tag}
+                    </Badge>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <Section title="Release">
@@ -182,6 +252,37 @@ function RecordDetail({ entry }: { entry: CatalogEntry }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Soft-deletes the record and returns to the catalog, which offers Undo. */
+function MoveToTrash({ entry }: { entry: CatalogEntry }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const trash = useMutation({
+    mutationFn: () => api.trashCatalogEntry(entry.id),
+    onSuccess: () => {
+      for (const key of [["catalog"], ["tags"], ["trash"]]) queryClient.invalidateQueries({ queryKey: key });
+      const state: TrashedState = {
+        trashed: { items: [{ kind: "entry", id: entry.id }], label: `“${entry.release.title}”` },
+      };
+      navigate("/", { state });
+    },
+  });
+  return (
+    <ConfirmDialog
+      trigger={
+        <Button variant="outline" size="sm" disabled={trash.isPending} aria-label="Move to trash">
+          <Trash2 className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">{trash.isPending ? "Moving…" : "Move to trash"}</span>
+        </Button>
+      }
+      title="Move to trash?"
+      description={`“${entry.release.title}” will be removed from your catalog. You can restore it from the Trash for 30 days, after which it's deleted for good.`}
+      confirmLabel="Move to trash"
+      destructive
+      onConfirm={() => trash.mutate()}
+    />
   );
 }
 

@@ -10,5 +10,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Dev mirrors production's single origin: the API runs separately on :3005.
+    proxy: { "/api": "http://localhost:3005" },
+  },
 });

@@ -7,6 +7,7 @@ import { Condition } from "@sonic/shared";
 import type { CatalogEntry } from "@sonic/shared";
 import { api } from "@/api";
 import { AppHeader } from "@/components/AppHeader";
+import { TagInput } from "@/components/TagInput";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,6 @@ export function CatalogEntryEditPage({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-svh bg-background">
       <AppHeader onLogout={onLogout}>
-        <span className="text-muted-foreground">/</span>
         <Link to="/" className="text-muted-foreground hover:text-foreground">
           Catalog
         </Link>
@@ -88,8 +88,6 @@ type FormState = {
   year: string;
   country: string;
   format: string;
-  genres: string;
-  styles: string;
   coverUrl: string;
   condition: string;
   location: string;
@@ -109,8 +107,6 @@ function initialState(entry: CatalogEntry): FormState {
     year: r.year != null ? String(r.year) : "",
     country: r.country ?? "",
     format: r.format ?? "",
-    genres: r.genres.join(", "),
-    styles: r.styles.join(", "),
     coverUrl: r.coverUrl ?? "",
     condition: entry.condition ?? "",
     location: entry.location ?? "",
@@ -120,16 +116,12 @@ function initialState(entry: CatalogEntry): FormState {
   };
 }
 
-const splitList = (s: string) =>
-  s
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-
 function EditForm({ entry }: { entry: CatalogEntry }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => initialState(entry));
+  const [tags, setTags] = useState<string[]>(entry.tags);
+  const { data: allTags } = useQuery({ queryKey: ["tags"], queryFn: () => api.listTags() });
 
   const set = (key: keyof FormState) => (value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -142,6 +134,7 @@ function EditForm({ entry }: { entry: CatalogEntry }) {
         purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : null,
         purchaseDate: form.purchaseDate || null,
         notes: form.notes.trim() || null,
+        tags,
         release: {
           artist: form.artist.trim(),
           title: form.title.trim(),
@@ -151,14 +144,13 @@ function EditForm({ entry }: { entry: CatalogEntry }) {
           year: form.year ? Number(form.year) : null,
           country: form.country.trim() || null,
           format: form.format.trim() || null,
-          genres: splitList(form.genres),
-          styles: splitList(form.styles),
           coverUrl: form.coverUrl.trim() || null,
         },
       }),
     onSuccess: (updated) => {
       queryClient.setQueryData(["catalog-entry", entry.id], updated);
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
       navigate(`/catalog/${entry.id}`);
     },
   });
@@ -199,6 +191,13 @@ function EditForm({ entry }: { entry: CatalogEntry }) {
           <Field label="Artist" required>
             <Input value={form.artist} onChange={(e) => set("artist")(e.target.value)} />
           </Field>
+          <Field label="Tags — genre, style, category, group…">
+            <TagInput
+              value={tags}
+              onChange={setTags}
+              suggestions={allTags?.map((t) => t.name)}
+            />
+          </Field>
         </div>
 
         <FormSection title="Release">
@@ -226,12 +225,6 @@ function EditForm({ entry }: { entry: CatalogEntry }) {
           </Field>
           <Field label="Barcode">
             <Input value={form.barcode} onChange={(e) => set("barcode")(e.target.value)} />
-          </Field>
-          <Field label="Genres (comma-separated)" full>
-            <Input value={form.genres} onChange={(e) => set("genres")(e.target.value)} />
-          </Field>
-          <Field label="Styles (comma-separated)" full>
-            <Input value={form.styles} onChange={(e) => set("styles")(e.target.value)} />
           </Field>
         </FormSection>
 

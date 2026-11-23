@@ -3,76 +3,105 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Retro palette from /color.png, applied to an industrial layout.
+ * Light = pale Harvest Gold page with cream cards + chocolate ink; dark = deep
+ * chocolate + cream ink.
+ * Harvest Orange is the single primary accent (dark text on it for contrast).
+ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Source palette */
+  --harvest-gold: #d8c774;
+  --avocado-green: #73956f;
+  --burnt-orange: #cc5500;
+  --rust-red: #a14f3a;
+  --chocolate-brown: #6b4f34;
+  --harvest-orange: #e57200;
+  --mustard-yellow: #e3a83c;
+  --teal-blue: #4a8c9f;
+
+  --radius: 0.25rem;
+  /* Page: a pale wash of Harvest Gold — 30% gold mixed into cream #f3eee3.
+     A literal hex, not color-mix(), so no build fallback reverts to full gold.
+     Cards, header and dialogs stay cream. */
+  --background: #ebe2c2;
+  --foreground: #2e2117;
+  --card: #fbf8f1;
+  --card-foreground: #2e2117;
+  --popover: #fbf8f1;
+  --popover-foreground: #2e2117;
+  --primary: var(--harvest-orange);
+  --primary-foreground: #24180f;
+  --secondary: #ece2bd;
+  --secondary-foreground: #3d2c1d;
+  --muted: #e9e1d0;
+  --muted-foreground: #5a4029; /* chocolate, a shade darker: ≥4.5:1 on gold and cream */
+  --accent: #e8dcc0;
+  --accent-foreground: #2e2117;
+  --destructive: var(--rust-red);
+  --border: #d6c99f; /* visible on both the gold wash and cream */
+  --input: #cdbf93;
+  --ring: var(--harvest-orange);
+  --chart-1: var(--harvest-orange);
+  --chart-2: var(--teal-blue);
+  --chart-3: var(--avocado-green);
+  --chart-4: var(--mustard-yellow);
+  --chart-5: var(--rust-red);
+  --sidebar: #eee7d8;
+  --sidebar-foreground: #2e2117;
+  --sidebar-primary: var(--harvest-orange);
+  --sidebar-primary-foreground: #24180f;
+  --sidebar-accent: #e8dcc0;
+  --sidebar-accent-foreground: #2e2117;
+  --sidebar-border: #d6c99f;
+  --sidebar-ring: var(--harvest-orange);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #1d1510;
+  --foreground: #f3eee3;
+  --card: #271d16;
+  --card-foreground: #f3eee3;
+  --popover: #2b2018;
+  --popover-foreground: #f3eee3;
+  --primary: var(--harvest-orange);
+  --primary-foreground: #1d1510;
+  --secondary: #3a2c20;
+  --secondary-foreground: #f3eee3;
+  --muted: #31251c;
+  --muted-foreground: #c2b096;
+  --accent: #3a2c20;
+  --accent-foreground: #f3eee3;
+  --destructive: #c9654b;
+  --border: rgb(243 238 227 / 10%);
+  --input: rgb(243 238 227 / 15%);
+  --ring: var(--harvest-orange);
+  --chart-1: var(--harvest-orange);
+  --chart-2: var(--teal-blue);
+  --chart-3: var(--avocado-green);
+  --chart-4: var(--mustard-yellow);
+  --chart-5: var(--rust-red);
+  --sidebar: #241a14;
+  --sidebar-foreground: #f3eee3;
+  --sidebar-primary: var(--harvest-orange);
+  --sidebar-primary-foreground: #1d1510;
+  --sidebar-accent: #3a2c20;
+  --sidebar-accent-foreground: #f3eee3;
+  --sidebar-border: rgb(243 238 227 / 10%);
+  --sidebar-ring: var(--harvest-orange);
 }
 
 @theme inline {
+  --color-harvest-gold: var(--harvest-gold);
+  --color-avocado-green: var(--avocado-green);
+  --color-burnt-orange: var(--burnt-orange);
+  --color-rust-red: var(--rust-red);
+  --color-chocolate-brown: var(--chocolate-brown);
+  --color-harvest-orange: var(--harvest-orange);
+  --color-mustard-yellow: var(--mustard-yellow);
+  --color-teal-blue: var(--teal-blue);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -114,7 +143,30 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
+  html {
+    color-scheme: light;
   }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+/* Small uppercase monospace label: the industrial "spec plate" style. */
+@utility label-mono {
+  @apply font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground;
+}
+
+/* Retro stripe band: four stacked bars from the palette. */
+@utility retro-stripe {
+  background-image: linear-gradient(
+    to bottom,
+    var(--harvest-orange) 0 25%,
+    var(--mustard-yellow) 25% 50%,
+    var(--rust-red) 50% 75%,
+    var(--chocolate-brown) 75% 100%
+  );
 }
