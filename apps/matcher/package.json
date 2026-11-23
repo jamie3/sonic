@@ -1,0 +1,23 @@
+{
+  "name": "@sonic/matcher",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Background app: Discogs matching for captures in review, plus the daily trash purge.",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "trash:purge": "tsx src/purge-trash.ts",
+    "typecheck": "tsc --noEmit",
+    "match:evaluate": "tsx src/evaluate.ts"
+  },
+  "dependencies": {
+    "@sonic/core": "workspace:*",
+    "@sonic/shared": "workspace:*",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.0"
+  }
+}

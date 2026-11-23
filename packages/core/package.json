@@ -1,0 +1,40 @@
+{
+  "name": "@sonic/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sonic's domain core, shared by the API, worker and extractor: config, database (+ migrations), job queue, image storage, repositories, services, Discogs lookup and matching.",
+  "exports": {
+    "./db": "./src/db/index.ts",
+    "./storage": "./src/storage/index.ts",
+    "./repositories": "./src/repositories/index.ts",
+    "./services": "./src/services/index.ts",
+    "./metadata": "./src/metadata/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:reset": "tsx src/db/reset.ts",
+    "releases:fill-details": "tsx src/scripts/fill-release-details.ts",
+    "invite:create": "tsx src/scripts/create-invite.ts"
+  },
+  "dependencies": {
+    "@sonic/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^17.4.2",
+    "kysely": "^0.27.4",
+    "pg": "^8.13.1",
+    "pg-boss": "^10.1.5",
+    "sharp": "^0.35.5",
+    "tsx": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,21 +1,10 @@
-import type { FastifyPluginAsync } from "fastify";
-import { requireAuth } from "../auth.js";
-import { storage } from "../storage/index.js";
+import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
+import { ImageController } from "../controllers/image.controller.js";
+import { requireAuth } from "../middleware/require-auth.js";
+import { getImageSchema } from "../schemas/image.schema.js";
 
-/** Serves stored photos behind auth. Wildcard captures the full storage key. */
-export const imageRoutes: FastifyPluginAsync = async (app) => {
-  app.get<{ Params: { "*": string } }>(
-    "/images/*",
-    { preHandler: requireAuth },
-    async (req, reply) => {
-      const key = req.params["*"];
-      try {
-        const stream = await storage.getStream(key);
-        reply.type("image/jpeg");
-        return reply.send(stream);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
-    },
-  );
+/** Serves stored photos behind auth (cookie fallback lets <img> authenticate). */
+export const imageRoutes: FastifyPluginAsyncZod = async (app) => {
+  const c = new ImageController(app.services.images);
+  app.get("/images/*", { schema: getImageSchema, preHandler: requireAuth }, c.get);
 };

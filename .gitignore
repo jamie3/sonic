@@ -16,3 +16,11 @@ apps/server/data/
 
 # vite
 apps/web/dist/
+
+# Discogs data dumps (tens of GB) — imported into Postgres by `pnpm discogs:import`
+discogs_*.xml
+discogs_*.xml.gz
+data/discogs/
+
+# Tesseract language data, downloaded and cached at runtime by tesseract.js
+*.traineddata

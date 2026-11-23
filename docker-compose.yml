@@ -1,3 +1,16 @@
+# Shared by `app`, `matcher` and `extractor` — all load the same config (packages/core/src/config.ts).
+x-app-env: &app-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
+  JWT_SECRET: ${JWT_SECRET}
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-disk}
+  IMAGE_DIR: /data/images
+  DISCOGS_TOKEN: ${DISCOGS_TOKEN}
+  DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT:-Sonic/0.1}
+  VISION_DRIVER: ${VISION_DRIVER:-claude}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  OLLAMA_URL: ${OLLAMA_URL}
+  OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL}
+
 services:
   db:
     image: postgres:16
@@ -7,7 +20,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sonic}
       POSTGRES_DB: ${POSTGRES_DB:-sonic}
     ports:
-      - "5432:5432"
+      # Host port 5433 by default so it can run alongside other local Postgres servers.
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,62 +30,53 @@ services:
       timeout: 5s
       retries: 10
 
-  api:
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile
-    command: ["node", "dist/main.js", "serve"]
+  # API + web app on one port.
+  app:
+    build: .
+    image: sonic:latest
     restart: unless-stopped
     ports:
       - "3005:3005"
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
-      JWT_SECRET: ${JWT_SECRET}
-      AUTH_USERNAME: ${AUTH_USERNAME}
-      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH}
-      STORAGE_DRIVER: ${STORAGE_DRIVER:-disk}
-      IMAGE_DIR: /data/images
-      DISCOGS_TOKEN: ${DISCOGS_TOKEN}
-      DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT}
+    environment: *app-env
     volumes:
       - images:/data/images
     depends_on:
       db:
         condition: service_healthy
 
-  worker:
+  # Separate app (apps/matcher): Discogs matching for captures in review, plus
+  # the daily trash purge.
+  matcher:
     build:
       context: .
-      dockerfile: apps/server/Dockerfile
-    command: ["node", "dist/main.js", "work"]
+      target: matcher
+    image: sonic-matcher:latest
     restart: unless-stopped
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-sonic}:${POSTGRES_PASSWORD:-sonic}@db:5432/${POSTGRES_DB:-sonic}
-      STORAGE_DRIVER: ${STORAGE_DRIVER:-disk}
-      IMAGE_DIR: /data/images
-      DISCOGS_TOKEN: ${DISCOGS_TOKEN}
-      DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT}
-      VISION_DRIVER: ${VISION_DRIVER:-claude}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OLLAMA_URL: ${OLLAMA_URL}
-      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL}
+    environment: *app-env
     volumes:
       - images:/data/images
     depends_on:
       db:
         condition: service_healthy
 
-  web:
+  # Separate app: reads each new capture's photos (Claude vision by default),
+  # stores the extracted text/fields, and moves the capture to "review".
+  extractor:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3005}
+      target: extractor
+    image: sonic-extractor:latest
     restart: unless-stopped
-    ports:
-      - "3000:80"
+    environment:
+      <<: *app-env
+      EXTRACTOR_ENGINE: ${EXTRACTOR_ENGINE:-claude}
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-}
+      EXTRACTOR_CONCURRENCY: ${EXTRACTOR_CONCURRENCY:-2}
+    volumes:
+      - images:/data/images:ro
     depends_on:
-      - api
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
