@@ -2,17 +2,30 @@
   "expo": {
     "name": "Sonic",
     "slug": "sonic",
+    "scheme": "sonic",
     "version": "0.1.0",
     "orientation": "portrait",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "plugins": [
       [
         "expo-camera",
-        { "cameraPermission": "Sonic uses the camera to photograph your records." }
-      ]
+        {
+          "cameraPermission": "Sonic uses the camera to photograph your records."
+        }
+      ],
+      "expo-secure-store",
+      "expo-font",
+      "expo-web-browser"
     ],
     "extra": {
-      "apiUrl": "http://localhost:3005"
+      "apiUrl": "http://localhost:3005/api"
+    },
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "backgroundColor": "#f3eee3"
     }
   }
 }

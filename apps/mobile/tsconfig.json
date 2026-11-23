@@ -6,7 +6,8 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
-    "composite": false
+    "composite": false,
+    "declaration": false
   },
   "include": ["index.ts", "src"]
 }
